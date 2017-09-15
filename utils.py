@@ -1,7 +1,17 @@
 import subprocess
 import logging
-
+import argparse
+import os
+from constants import LINUX_REPO_URL, LINUX_NEXT_REMOTE
 logger=logging.getLogger(__name__)
+
+def change_dir(func):
+    def wrapper(*args, **kwargs):
+        cur_dir = os.getcwd()
+        result = func(*args, **kwargs)
+        os.chdir(cur_dir)
+        return result
+    return wrapper
 
 def get_arg_parser():
     parser = argparse.ArgumentParser()
@@ -41,7 +51,26 @@ def clone_repo(repo_url, repo_path):
         'git', 'clone', repo_url,
         repo_path
     ])
-    
+
+def add_remote(remote_name, remote_url):
+    return run_command([
+        'git', 'remote', 'add',
+        remote_name, remote_url
+    ])
+
+@change_dir
+def manage_linux_repo(repo_path, create=False):
+    if create:
+        clone_repo(LINUX_REPO_URL, repo_path)
+        os.chdir(repo_path)
+        add_remote('linux-next', LINUX_NEXT_REMOTE)
+        run_command(['git', 'fetch', 'linux-next']) 
+        run_command(['git', 'fetch', '--tags', 'linux-next'])
+    else:
+        os.chdir(repo_path)
+        run_command(['git', 'checkout', 'master'])
+        run_command(['git', 'remote', 'update'])
+
 def run_command(command_arguments):
     ps_command = subprocess.Popen(
     command_arguments,
