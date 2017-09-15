@@ -3,6 +3,7 @@ import logging
 import os
 import argparse
 import sys
+
 logging.basicConfig(level=logging.INFO)
 logger=logging.getLogger(__name__)
 from shutil import rmtree
@@ -90,241 +91,93 @@ def run_command(command_arguments):
         )
     else:
         return stdout_data
+
+def normalize_path(patch_path):
+    normalize_base = ["sed", '-i']
+    parse_cmds = [
+        "'s/--- a\/drivers\/hv/--- a/g'", "'s/+++ b\/drivers\/hv/+++ b/g'",
+        "'s/--- a\/drivers\/scsi/--- a/g'", "'s/+++ b\/drivers\/scsi/+++ b/g'",
+        "'s/--- a\/tools\/hv\//--- a\/tools\//g'", "'s/+++ b\/tools\/hv\//+++ b\/tools\//g'",
+        "'s/--- a\/drivers\/net\/hyperv/ --- a/g'", "'s/+++ b\/drivers\/net\/hyperv/ +++ b/g'",
+        "'s/--- a\/arch\/x86\/include\/asm/ --- a\/arch\/x86\/include\/lis\/asm/g'",
+        "'s/+++ b\/arch\/x86\/include\/asm/ +++ b\/arch\/x86\/include\/lis\/asm/g'",
+        "'s/--- a\/arch\/x86\/include\/uapi\/asm/ --- a\/arch\/x86\/include\/uapi\/lis\/asm/g'",
+        "'s/+++ b\/arch\/x86\/include\/uapi\/asm/ +++ b\/arch\/x86\/include\/uapi\/lis\/asm/g'",
+        "'s/--- a\/drivers\/pci\/host/--- a/g'", "'s/+++ b\/drivers\/pci\/host/+++ b/g'"
+        ]
     
-class VMManager(object):
-    normalize_cmds = [
-        "sed -i 's/--- a\/drivers\/hv/--- a/g' {}",
-	    "sed -i 's/+++ b\/drivers\/hv/+++ b/g' {}"
-	    "sed -i 's/--- a\/drivers\/scsi/--- a/g' {}"
-	    "sed -i 's/+++ b\/drivers\/scsi/+++ b/g' {}"
-	    "sed -i 's/--- a\/tools\/hv\//--- a\/tools\//g' {}"
-	    "sed -i 's/+++ b\/tools\/hv\//+++ b\/tools\//g' {}"
-	    "sed -i 's/--- a\/drivers\/net\/hyperv/ --- a/g' {}"
-	    "sed -i 's/+++ b\/drivers\/net\/hyperv/ +++ b/g' {}"
-	    "sed -i 's/--- a\/arch\/x86\/include\/asm/ --- a\/arch\/x86\/include\/lis\/asm/g' {}"
-	    "sed -i 's/+++ b\/arch\/x86\/include\/asm/ +++ b\/arch\/x86\/include\/lis\/asm/g' {}"
-	    "sed -i 's/--- a\/arch\/x86\/include\/uapi\/asm/ --- a\/arch\/x86\/include\/uapi\/lis\/asm/g' {}"
-	    "sed -i 's/+++ b\/arch\/x86\/include\/uapi\/asm/ +++ b\/arch\/x86\/include\/uapi\/lis\/asm/g' {}"
-	    "sed -i 's/--- a\/drivers\/pci\/host/--- a/g' {}"
-    	"sed -i 's/+++ b\/drivers\/pci\/host/+++ b/g' {}"
+    for cmd in parse_cmds:
+        final_cmd = normalize_base + cmd + [patch_path]
+        run_command(final_cmd)
+
+def apply_patch(patch_file, dry_run=False):
+    if dry_run:
+        dry_run = '--dry-run'
+    else:
+        dry_run = ''
+
+    cmd = ['patch', dry_run, '--ignore-whitespace',
+            '-p1', '-F1', '-f', '<', patch_file
     ]
 
+    return run_command(cmd)
 
-    def __init__(self, vm_name, server, vm_user, ssh, plink):
-        self.name = vm_name
-        self.server = server
-        self.ssh = ssh
-        self.plink = plink
-        self.user = vm_user
+def build(clean=False):
+    base_build_cmd = ['make', '-C']
+    drivers = '/lib/modules/$(uname -r)/build M=`pwd`'
+    daemons = './tools'
+    # First run the clean commands
+    run_command(base_build_cmd, [drivers, 'clean'])
+	run_command(base_build_cmd, [daemons, 'clean'])
     
-    @run_remote_command
-    def create_folder(folder_path):
-        bash_cmd = '[ -d "{}" ] then rm -rf {} && mkdir {}; else mkdir {}; fi'.format(
-            folder_path, folder_path, folder_path
-        )
-        return bash_cmd
-
-    def run_remote_command(self, method):
-        def wrapper(*args):
-            cmd = method(*args)
-            win_cmd = [ self.plink, '-i', self.ssh, 
-                '{}@{}'.format(self.user, self.vm_ip),
-                cmd
-            ]
-            return run_command(win_cmd)
-
-        return wrapper
-
-    @run_remote_command
-    def copy_file(source_path, destination_path):
-        pass
-
-    @run_remote_command  
-    def clone_repo(repo_url, dest='/root/'):
-        cmd = 'git clone {} {}'.format(repo_url, dest)
-        self.run_remote_cmd(cmd)
+    if not clean:
+        run_command(base_build_cmd + [drivers])
+        run_command(base_build_cmd + [daemons])
     
+def test_patch(patch_path, repo_path):
+    os.chdir(repo_path)
+
+    logger.info('Normalizing the paths in the patch')
+    normalize_path(patch_path)
     
-    def get_kvp_dict(self, kvp_fields=None):
-        cmd_output = self.invoke_ps_command('kvp')
-        if not kvp_fields:
-            return VirtualMachine.parse_kvp_output(cmd_output)
+    logger.info("Applying patch in dry run")
+    self.apply_patch(patch_path, dry_run=True)
+    logger.info("Applying patch")
+    self.apply_patch(patch_path)
 
-        kvp_dict = VirtualMachine.parse_kvp_output(cmd_output)
-        kvp_values = dict()
-        for field in kvp_fields:
-            try:
-                kvp_values[field] = kvp_dict[field]
-            except KeyError:
-                logger.warning('Unable to find kvp value for %s', field)
+    logger.info("Building LIS drivers and daemons")
+    self.build()
 
-        return kvp_values
+    logger.info("Running repo cleanup")
+    self.build(clean=True)
 
-    def get_kvp_cmd():
-        pass
+    #logger.info("Create commit message")
+    #self.commit_changes(patch_file)
 
-    def test_patch(patch_path, repo_path):
-        self.chdir(repo_path)
+def get_commit_ids(self, path, author=None, date=None):
+    git_cmd = ['git', 'log']
+    if author: git_cmd.extend(['--author', author])
+    if date: git_cmd.extend(['--since', date])
 
-        logger.info('Normalizing the paths in the patch')
-        for cmd in normalize_cmds:
-            self.run_remote_cmd(cmd.format(patch_path))
-        
-        logger.info("Applying patch in dry run")
-        self.apply_patch(patch_path, dry_run=True)
-        logger.info("Applying patch")
-        self.apply_patch(patch_path)
+    git_cmd.append('--pretty=format:%H')
+    git_cmd.extend(['--', path])
 
-        logger.info("Building LIS drivers")
-        self.build_drivers()
+    return run_command(git_cmd).strip().split()
 
-        logger.info("Building LIS daemons")
-        self.build_daemons()
-
-        logger.info("Running repo cleanup")
-        self.cleanup()
-
-        logger.info("Create commit message")
-        self.commit_changes(patch_file)
-
-
-    def commit_changes():
-        commit_description = ''
-        commit_id = ''
-
-        commit_cmds = [
-            'git add -u .',
-            'git add ./\*.c',
-            'git add ./\*.h',
-            'git commit -m "RH:{} <upstream:{}>"'.format(commit_description, commit_id)
+def create_patch(self, commit_id, destination):
+    command = [
+        'git', 'format-patch', '-1',
+        commit_id, '-o', destination
         ]
 
-        for cmd in commit_cmds:
-            self.run_remote_cmd(cmd)
-	
-    @run_remote_command
-    def build_drivers():
-        cmd = 'make -C /lib/modules/$(uname -r)/build M=`pwd` clean'
-        self.run_remote_cmd(cmd)
-        cmd = 'make -C /lib/modules/$(uname -r)/build M=`pwd` modules'
-        self.run_remote_cmd(cmd)
+    return run_command(command).strip()
+
+def clone_repo(self, repo_url, repo_path):
+    return run_command([
+        'git', 'clone', repo_url,
+        repo_path
+    ])
     
-    @run_remote_command
-    def build_daemons():
-        cmd = 'make -C ./tools clean'
-	    self.run_remote_cmd(cmd)
-        cmd = 'make -C ./tools'
-        self.run_remote_cmd(cmd)
-    
-    @run_remote_command
-    def cleanup():
-	    cmd = "make -C ./tools clean"
-	    self.run_remote_cmd(cmd)
-	    cmd = "make -C /lib/modules/$(uname -r)/build M=`pwd` clean"
-	    self.run_remote_cmd(cmd)
-
-    @run_remote_command
-    def apply_patch(patch_file, dry_run=False):
-        if dry_run:
-            dry_run = '--dry-run'
-        else:
-            dry_run = ''
-
-        cmd = 'patch {} --ignore-whitespace -p1 -F1 -f < {}'.format(
-            dry_run, patch_file
-        )
-
-        return cmd
-
-
-    def run_remote_cmd(cmd):
-        win_cmd = [
-            self.plink, '-i', self.ssh,
-            '{}@{}'.format(self.user, self.vm_ip),
-            cmd
-        ]
-
-        return run_command(win_cmd)
-
-class GitManager(object):
-    def __init__(self, repo_path, git_path='git', repo_url=None):
-        self.repo_path = repo_path
-        self.git_path = git_path
-        if repo_url: self.run_command(self.get_clone_command(repo_url))
-    
-    def get_commit_ids(self, path, author=None, date=None):
-        git_cmd = [self.git_path, 'log']
-        if author: git_cmd.extend(['--author', author])
-        if date: git_cmd.extend(['--since', date])
-
-        git_cmd.append('--pretty=format:%H')
-        git_cmd.extend(['--', path])
-
-        return self.run_command(git_cmd).strip().split()
-
-    def create_patch(self, commit_id, destination):
-        command = [
-            self.git_path, 'format-patch', '-1',
-            commit_id, '-o', destination
-            ]
-
-        return self.run_command(command).strip()
-    
-    def get_clone_command(self, repo_url):
-        return [
-            self.git_path, 'clone', repo_url,
-            self.repo_path
-        ]
-    
-    @staticmethod
-    def run_command(command_arguments):
-        ps_command = subprocess.Popen(
-        command_arguments,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE
-        )
-
-        stdout_data, stderr_data = ps_command.communicate()
-
-        logger.debug('Command output %s', stdout_data)
-        if ps_command.returncode != 0:
-            raise RuntimeError(
-                "Command failed, status code %s stdout %r stderr %r" % (
-                    ps_command.returncode, stdout_data, stderr_data
-                )
-            )
-        else:
-            return stdout_data
-    
-
-
-
-    dry = ''
-    if dry_run: dry = '--dry-run'
-
-    return 'patch {} --ignore-whitespace -p1 -F1 -f < {}'.format(
-                dry, patch_file_path
-            )
-
-
-    ps_command = subprocess.Popen(
-        command_arguments,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE
-    )
-
-    stdout_data, stderr_data = ps_command.communicate()
-
-    logger.debug('Command output %s', stdout_data)
-    if ps_command.returncode != 0:
-        raise RuntimeError(
-            "Command failed, status code %s stdout %r stderr %r" % (
-                ps_command.returncode, stdout_data, stderr_data
-            )
-        )
-    else:
-        return stdout_data
-
 
 def test_patches(args):
     vm_manager = VMManager(name=args.vm_name, )
