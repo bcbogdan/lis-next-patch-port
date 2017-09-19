@@ -8,6 +8,8 @@ from test_patches import test_patches
 logging.basicConfig(level=logging.INFO)
 logger=logging.getLogger(__name__)
 
+# TODO(BOGDAN): Add verbose logging
+
 def create_patches(args):
     if not args.linux_repo:
         args.linux_repo = '/root/linux'
@@ -17,14 +19,15 @@ def create_patches(args):
 
     os.chdir(args.linux_repo)
     commit_list = get_commit_list(args.linux_repo, args.date, args.author)
-    logger.info('Creating patches for the following commits: {}'.format(', '.join(commit_list)))
     
     patch_list = create_patch_files(commit_list, args.patches_folder)
-    logger.info('Created the following patches: {}'.format(', '.join(patch_list)))
+    logger.info('Created the following patches:')
+    [logger.info(patch_path) for patch_path in patch_list]
 
 if __name__ == '__main__':
     parser = get_arg_parser()
     args = parser.parse_args(sys.argv[1:])
+
     command = sys.argv[1]
     if command == 'create-patches':
         create_patches(args)

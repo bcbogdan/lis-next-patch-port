@@ -37,7 +37,12 @@ def get_arg_parser():
         help='Folder where the patch files will be created',
         default='./patches'
     )
-
+    create_patch_parser.add_argument(
+        '-v', '--verbose',
+        help='Verbose logging',
+        action='store_true',
+        default=False
+    )
     test_patches_parser = sub_parsers.add_parser('test-patches', help='Build and test the new patches with lis next')
     test_patches_parser.add_argument(
         'patches_folder',
@@ -77,7 +82,7 @@ def run_command(command_arguments):
     stdout=subprocess.PIPE,
     stderr=subprocess.PIPE
     )
-
+    logger.debug('Running command {}'.format(command_arguments))
     stdout_data, stderr_data = ps_command.communicate()
 
     logger.debug('Command output %s', stdout_data)
