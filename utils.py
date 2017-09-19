@@ -17,7 +17,7 @@ def get_arg_parser():
     parser = argparse.ArgumentParser()
     sub_parsers = parser.add_subparsers(help='CLI Commands')
     
-    create_patch_parser = sub_parsers.add_parser('create-patches', help='Create patches in folder')
+    create_patch_parser = sub_parsers.add_parser('create', help='Create patches in folder')
     create_patch_parser.add_argument(
         '-d', '--date',
         help='Date since last commit. Default - a day ago',
@@ -43,12 +43,27 @@ def get_arg_parser():
         action='store_true',
         default=False
     )
-    test_patches_parser = sub_parsers.add_parser('test-patches', help='Build and test the new patches with lis next')
+    create_patch_parser.add_argument(
+        '-f', '--find',
+        help='Perform find step',
+        action='store_true',
+        default=False
+    )
+    
+    test_patches_parser = sub_parsers.add_parser('apply', help='Apply patches from a specified folder')
     test_patches_parser.add_argument(
         'patches_folder',
         help='Patches folder path',
         default='.\patches'
     )
+    
+    test_patches_parser = sub_parsers.add_parser('build', help='Build projects')
+    test_patches_parser.add_argument(
+        'patches_folder',
+        help='Patches folder path',
+        default='.\patches'
+    )
+
     return parser
 
 def clone_repo(repo_url, repo_path):
